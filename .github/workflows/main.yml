@@ -1,83 +1,51 @@
-name: RDP
+name: Windows Cloud PC - Anydesk (Optimized)
 
 on:
   workflow_dispatch:
 
 jobs:
-  secure-rdp:
+  build:
+    name: Start Building...
     runs-on: windows-latest
-    timeout-minutes: 3600
+    timeout-minutes: 10080  # Máximo de 7 dias para evitar tempo de execução excessivo
 
     steps:
-      - name: Configure Core RDP Settings
+      - name: Downloading & Installing Essentials
         run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                             -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "SecurityLayer" -Value 0 -Force
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          netsh advfirewall firewall add rule name="RDP-Tailscale" `
-            dir=in action=allow protocol=TCP localport=3389
-          Restart-Service -Name TermService -Force
+          # Baixa o arquivo .bat para instalar componentes essenciais
+          Invoke-WebRequest -Uri "https://www.dropbox.com/scl/fi/7eiczvgil84czu55dxep3/Downloads.bat?rlkey=wzdc1wxjsph2b7r0atplmdz3p&dl=1" -OutFile "Downloads.bat"
+          # Executa o script .bat para instalar os componentes
+          cmd /c Downloads.bat
 
-      - name: Create RDP User with Fixed Password
+      - name: Log In To AnyDesk
         run: |
-          $password = "15051986Jri"
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          if (-not (Get-LocalUser -Name "Jrizz" -ErrorAction SilentlyContinue)) {
-              New-LocalUser -Name "Jrizz" -Password $securePass -AccountNeverExpires
+          # Verifica se o arquivo start.bat existe antes de executar
+          if (Test-Path "start.bat") {
+            cmd /c start.bat
           } else {
-              Set-LocalUser -Name "Jrizz" -Password $securePass
+            Write-Host "Arquivo start.bat não encontrado. Verifique a configuração."
           }
-          Add-LocalGroupMember -Group "Administrators" -Member "Jrizz" -ErrorAction SilentlyContinue
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Jrizz" -ErrorAction SilentlyContinue
-          echo "RDP_CREDS=User: Jrizz | Password: $password" >> $env:GITHUB_ENV
 
-      - name: Install Tailscale
+      - name: Monitor and Restart AnyDesk if Needed
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
-
-      - name: Establish Tailscale Connection
-        run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
-          $tsIP = $null
-          $retries = 0
-          while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              Start-Sleep -Seconds 5
-              $retries++
-          }
-          if (-not $tsIP) {
-              Write-Error "Tailscale IP not assigned. Exiting."
-              exit 1
-          }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-      
-      - name: Verify RDP Accessibility
-        run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-          if (-not $testResult.TcpTestSucceeded) {
-              Write-Error "TCP connection to RDP port 3389 failed"
-              exit 1
-          }
-          Write-Host "TCP connectivity successful!"
-
-      - name: Maintain Connection
-        run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username: Jrizz"
-          Write-Host "Password: 15051986Jri"
-          Write-Host "==================`n"
-          Get-NetTCPConnection -LocalPort 3389 | Format-Table -AutoSize
+          # Monitora a conexão do AnyDesk e reinicia se necessário
           while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
-              Start-Sleep -Seconds 300
+            $process = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
+            if (-not $process) {
+              Write-Host "AnyDesk não está rodando, reiniciando..."
+              cmd /c start.bat
+            }
+            Start-Sleep -Seconds 300  # Verifica a cada 5 minutos
           }
+
+      - name: Time Counter (Long Running Task)
+        run: |
+          # Configura para manter a máquina em execução
+          Start-Sleep -Seconds 604800  # 7 dias de execução contínua
+
+      - name: Clean Up Temporary Files
+        if: success()  # Executa esta etapa apenas se todas as etapas anteriores forem bem-sucedidas
+        run: |
+          # Remove arquivos temporários ou logs gerados
+          Remove-Item Downloads.bat -Force
+          Write-Host "Limpeza completa."
