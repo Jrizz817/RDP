@@ -76,6 +76,7 @@ jobs:
           Write-Host "Username: Jrizz"
           Write-Host "Password: 15051986Jri"
           Write-Host "==================`n"
+          Get-NetTCPConnection -LocalPort 3389 | Format-Table -AutoSize
           while ($true) {
               Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
               Start-Sleep -Seconds 300
